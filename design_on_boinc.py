@@ -91,6 +91,7 @@ parser.add_argument("-per_pdb_files", type=str, default="")
 parser.add_argument("-add_pdb_ids", action="store_true")
 parser.add_argument("-priority", type=int, default=0)
 parser.add_argument("-queue", type=int, default=1)
+parser.add_argument("-strip_pdb_info_labels_except", type=str, default=None)
 parser.add_argument('pdbs', type=str, help="input pdb", nargs="*")
 
 args = parser.parse_args(sys.argv[1:])
@@ -104,6 +105,8 @@ n_cores = args.j
 pdbs_per_file = args.pdbs_per_job
 per_pdb_files = args.per_pdb_files
 add_pdb_ids = args.add_pdb_ids
+strip_labels = not args.strip_pdb_info_labels_except is None
+keep_labels = [] if args.strip_pdb_info_labels_except is None else args.strip_pdb_info_labels_except.split(",")
 
 if (xml_filename == '' or flags_filename == ''):
     sys.exit("This script needs both an xml file and a flags file")
@@ -230,6 +233,31 @@ class MyZip:
                 contents = self.virtual_files[virtual_file]
                 z.writestr(virtual_file, contents)
 
+strip_label_re = re.compile(r"(REMARK PDBinfo-LABEL: +[0-9]+ )([^\n]*)\n")
+
+keep_label_re = re.compile(r"(" + "|".join("^%s$"%s for s in keep_labels ) + ")")
+
+def sub_function(match):
+    if ( len(match.groups()) == 1):
+        return ""
+    group = match.group(2)
+    sp = group.strip().split()
+    keep = []
+    for item in sp:
+        if ( not keep_label_re.match(item) is None ):
+            keep.append(item)
+    if ( len(keep) == 0 ):
+        return ""
+
+    return match.group(1) + " ".join(keep) + "\n"
+
+def do_strip_labels(structure):
+    if ( len(keep_labels) == 0 ):
+        return strip_label_re.sub("", structure)
+
+    return strip_label_re.sub(sub_function, structure)
+
+
 
 
 
@@ -260,14 +288,17 @@ def make_run( xml_filename, runname, i, pdbs_per_file, silent_index, sf_open ):
     for i, pair in enumerate(zip(structures, tags)):
         s, t = pair
 
+        if ( strip_labels ):
+            s = do_strip_labels(s)
+
         first_n = s.find("\n")
 
         # this is a hack to allow variable length backbones on boinc
         #   specifically it tricks
         #   /projects/boinc/workspace/boinc/sched/validate_util.cpp
         #   on line 692 into skipping the coord_check
-        if ( input_scores_re.search( s ) is None ):
-            s = s[:first_n+1] + "REMARK _input_score 0\n" + s[first_n+1:]
+        if ( s.find("REMARK PDBinfo-LABEL") == -1 ):
+            s = s[:first_n+1] + "REMARK PDBinfo-LABEL 1 BOINC\n" + s[first_n+1:]
 
         if ( add_pdb_ids ):
             s = id_re.sub("\n", s)
@@ -456,6 +487,7 @@ for ichunk, chunk in enumerate(chunks(list(runnames), 30000)):
                 # " -out:prefix " + i + "_" +
                 " -database minirosetta_database @" + 
                 local_flag + " -in:file:silent " + i + ".silent -in:file:silent_struct_type binary -silent_gz -mute all" +
+                " -silent_read_through_errors true" +
                 " -out:file:silent_struct_type binary -out:file:silent default.out -in:file:boinc_wu_zip " +
                 i + ".zip" + 
                 run_extra_flags[i] + 
