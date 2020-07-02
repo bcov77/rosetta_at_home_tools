@@ -298,7 +298,7 @@ def make_run( xml_filename, runname, i, pdbs_per_file, silent_index, sf_open ):
         #   /projects/boinc/workspace/boinc/sched/validate_util.cpp
         #   on line 692 into skipping the coord_check
         if ( s.find("REMARK PDBinfo-LABEL") == -1 ):
-            s = s[:first_n+1] + "REMARK PDBinfo-LABEL 1 BOINC\n" + s[first_n+1:]
+            s = s[:first_n+1] + "REMARK PDBinfo-LABEL:    1 BOINC\n" + s[first_n+1:]
 
         if ( add_pdb_ids ):
             s = id_re.sub("\n", s)
